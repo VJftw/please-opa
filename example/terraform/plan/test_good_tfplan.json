@@ -1,0 +1,77 @@
+{
+    "format_version": "1.2",
+    "terraform_version": "1.6.3",
+    "planned_values": {
+        "root_module": {
+            "resources": [
+                {
+                    "address": "my_allowed_resource_type.i_am_a_good_resource",
+                    "mode": "managed",
+                    "type": "my_allowed_resource_type",
+                    "name": "i_am_a_good_resource",
+                    "provider_name": "registry.terraform.io/hashicorp/null",
+                    "schema_version": 0,
+                    "values": {
+                        "triggers": null
+                    },
+                    "sensitive_values": {}
+                }
+            ]
+        }
+    },
+    "resource_changes": [
+        {
+            "address": "my_allowed_resource_type.i_am_a_good_resource",
+            "mode": "managed",
+            "type": "my_allowed_resource_type",
+            "name": "i_am_a_good_resource",
+            "provider_name": "registry.terraform.io/hashicorp/null",
+            "change": {
+                "actions": [
+                    "create"
+                ],
+                "before": null,
+                "after": {
+                    "triggers": null
+                },
+                "after_unknown": {
+                    "id": true
+                },
+                "before_sensitive": false,
+                "after_sensitive": {}
+            }
+        }
+    ],
+    "configuration": {
+        "provider_config": {
+            "null": {
+                "name": "null",
+                "full_name": "registry.terraform.io/hashicorp/null"
+            }
+        },
+        "root_module": {
+            "resources": [
+                {
+                    "address": "my_allowed_resource_type.i_am_a_good_resource",
+                    "mode": "managed",
+                    "type": "my_allowed_resource_type",
+                    "name": "i_am_a_good_resource",
+                    "provider_config_key": "null",
+                    "provisioners": [
+                        {
+                            "type": "local-exec",
+                            "expressions": {
+                                "command": {
+                                    "constant_value": "echo \"I am a good resource\""
+                                }
+                            }
+                        }
+                    ],
+                    "schema_version": 0
+                }
+            ]
+        }
+    },
+    "timestamp": "2024-01-19T23:21:01Z",
+    "errored": false
+}
