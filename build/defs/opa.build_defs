@@ -1,0 +1,204 @@
+"""Build rules for working with Open Policy Agent (https://www.openpolicyagent.org/)
+"""
+subinclude("///shell//build_defs:shell")
+
+def opa_toolchain(name:str, version:str, static:bool=False, hashes:list=[], labels:list=[], visibility:list=[]):
+    """Build rule for obtaining a version of the OPA CLI.
+    Args:
+        name: The name of the build rule.
+        version: The version of OPA to download in MAJOR.MINOR.PATCH format. e.g. "0.60.0".
+        static: Whether or not to download a static version.
+        hashes: The hashes to verify the downloaded archive against.
+        labels: The additonal labels to add to the build rule.
+        visibility: The targets to make the toolchain visible to.
+    """
+    url = f"https://github.com/open-policy-agent/opa/releases/download/v{version}/opa_{CONFIG.OS}_{CONFIG.ARCH}"
+    if static:
+        url += "_static"
+
+    return remote_file(
+        name = name,
+        out = name,
+        url = url,
+        hashes = hashes,
+        binary = True,
+        labels = ["opa", "opa_toolchain"] + labels,
+        visibility = visibility,
+    )
+
+def opa_bundle(name:str, root:str, srcs:list, deps:list=[], labels:list=[], visibility:list=[]):
+    """Build rule for an OPA bundle.
+    Args:
+        name: The name of the build rule.
+        root: The package/root name for this OPA bundle.
+        srcs: The src rego files for the OPA bundle.
+        deps: The bundles that this bundle depends on.
+        labels: The additonal labels to add to the build rule.
+        visibility: The targets to make the bundle visible to.
+    """
+    return genrule(
+        name = name,
+        outs = [name],
+        srcs = srcs,
+        cmd = f"""
+mkdir -p $OUTS
+for src in $SRCS; do
+    sha256sum "$src" >> .sha256sums
+    cp "$src" "$OUTS/"
+done
+
+revision=$(sha256sum .sha256sums | cut -f1 -d" ")
+
+cat << EOF > $OUTS/.manifest
+{{
+  "revision": "$revision",
+  "roots": ["{root}"]
+}}
+EOF
+        """,
+        visibility = visibility,
+        labels = ["rego", "opa", "rego_bundle", "opa_bundle"] + labels,
+        exported_deps = deps,
+    )
+
+def opa_test(name:str, srcs:list, deps:list=[], toolchain:str=None, labels:list=[], visibility:list=[]):
+    """Build rule for testing an OPA bundle.
+    Args:
+        name: The name of the build rule.
+        srcs: The rego test files to run against the bundle.
+        deps: The OPA bundles to evaluate with the tests.
+        toolchain: The OPA toolchain to use.
+        labels: The additonal labels to add to the build rule.
+        visibility: The targets to make the bundle visible to.
+    """
+    if not toolchain and not CONFIG.OPA.DEFAULT_TOOLCHAIN:
+        fail("no 'toolchain' or 'opa.DefaultToolchain' specified.")
+
+    toolchain = toolchain or CONFIG.OPA.DEFAULT_TOOLCHAIN
+
+    bundles = " \\\n".join([f"--bundle ./$(location {b})" for b in deps])
+    return gentest(
+        name = name,
+        data = srcs + deps,
+        test_tools = toolchain,
+        test_cmd = f"""
+set -Euo pipefail
+test_dir=$(find . -name '*_test.rego' -type f | head -n1 | xargs dirname)
+test_dir_basename=$(basename $test_dir)
+bundle_dir=$test_dir/$test_dir_basename
+find . -name '*_test.rego' -type f -exec mv -t $bundle_dir {{}} +
+
+$TOOLS test \\
+    --verbose \\
+    {bundles} \\
+    $bundle_dir > opa.results
+
+# translate to Go Test format as per (https://please.build/tests.html)
+while read p; do
+    if [[ $p == data* ]]; then
+        test_name=$(echo "$p" | cut -f1 -d:)
+        test_result=$(echo "$p" | cut -f2 -d" ")
+        test_duration_microseconds=$(echo "$p" | cut -f2 -d\( | cut -f1 -d\) | sed 's/µs//g')
+        test_duration_seconds=$(printf %.2f $(echo "$test_duration_microseconds / 1000000" | bc -l))
+        echo  "=== RUN   $test_name" >> test.results
+        echo  "--- ${{test_result}}: $test_name (${{test_duration_seconds}}s)" >> test.results
+    fi
+done <opa.results
+cat opa.results
+        """,
+        labels = ["rego", "opa", "rego_test", "opa_test"] + labels,
+    )
+
+def opa_eval(name:str, bundles:list, toolchain:str=None, labels:list=[], visibility:list=[]):
+    """Build rule for testing an OPA bundle.
+    Args:
+        name: The name of the build rule.
+        bundles: The rego bundles required for the evaluation.
+        toolchain: The OPA toolchain to use.
+        labels: The additonal labels to add to the build rule.
+        visibility: The targets to make the bundle visible to.
+    """
+    if not toolchain and not CONFIG.OPA.DEFAULT_TOOLCHAIN:
+        fail("no 'toolchain' or 'opa.DefaultToolchain' specified.")
+
+    toolchain = toolchain or CONFIG.OPA.DEFAULT_TOOLCHAIN
+
+    bundles_array = " ".join([f"\"$(out_location {b})\"" for b in bundles])
+
+    return sh_cmd(
+        name = name,
+        data = bundles + [toolchain],
+        srcs = bundles + [toolchain],
+        shell = "/usr/bin/env bash",
+        cmd = f"""
+set -Eeuo pipefail
+toolchain="$(out_location {toolchain})"
+bundles=({bundles_array})
+
+# Support running inside tests.
+if [[ \\\$PWD == */plz-out* ]]; then
+    toolchain="\\\${{PWD%%/plz-out*}}/\\\$toolchain"
+    for i in "\\\${{!bundles[@]}}"; do
+        bundle="\\\${{bundles[\\\$i]}}"
+        bundle="\\\${{PWD%%/plz-out*}}/\\\$bundle"
+
+        bundles[\\\$i]="\\\$bundle"
+    done
+fi
+
+args=(
+    "eval"
+)
+
+for bundle in "\\\${{bundles[@]}}"; do
+    args+=("--bundle" "\\\$bundle")
+done
+
+args+=("\\\$@")
+
+\\\$toolchain "\\\${{args[@]}}"
+        """,
+        labels = ["opa", "opa_eval"] + labels,
+        visibility = visibility,
+    )
+
+def opa_eval_test(name:str, opa_eval_rule:str, query:str, inputs:list, data:list=[], args:list=[], labels:list=[], visibility:list=[]):
+    """Build rule for testing an OPA bundle.
+    Args:
+        name: The name of the build rule.
+        inputs: The input files to evaluate.
+        data: The supporting data files.
+        eval_rule: The opa_eval rule to use for evaluating the inputs.
+        labels: The additonal labels to add to the build rule.
+        visibility: The targets to make the bundle visible to.
+    """
+
+    args += [f"--input \"$(location {i})\"" for i in inputs]
+    args += [f"--data \"$(location {d})\"" for d in data]
+    args += [f"'{query}'"]
+
+    has_format_arg = False
+    for arg in args:
+        if arg.startswith("--format"):
+            has_format_arg = True
+
+    if not has_format_arg:
+        args += ["--format", "raw"]
+
+    args_str = " ".join(args)
+    gentest(
+        name = name,
+        data = {
+            "eval": [opa_eval_rule],
+            "inputs": inputs,
+            "data": data,
+        },
+        exit_on_error = True,
+        no_test_output = True,
+        test_cmd = f"""
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+$DATA_EVAL {args_str}
+        """,
+    )

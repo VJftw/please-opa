@@ -1,0 +1,28 @@
+; Please config file
+; Leaving this file as is is enough to use plz to build your project.
+; Please will stay on whatever version you currently have until you run
+; 'plz update', when it will download the latest available version.
+;
+; Or you can uncomment the following to pin everyone to a particular version;
+; when you change it all users will automatically get updated.
+[please]
+version = 17.7.0
+
+; Define the Plugin configuration options.
+[PluginDefinition]
+Name = opa
+Description = "A Please plugin for working with OPA."
+BuildDefsDir = "build/defs"
+
+[PluginConfig "default_toolchain"]
+ConfigKey = DefaultToolchain
+Optional = true
+Help = "Sets the given Please target as the Default OPA Toolchain to use."
+
+; Use the plugin in this repository for tests.
+[Plugin "opa"]
+DefaultToolchain = //example/third_party/opa:opa
+
+; Shell Plugin is used for scripts.
+[Plugin "shell"]
+Target = //third_party/plugins:shell

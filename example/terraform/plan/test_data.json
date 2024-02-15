@@ -1,0 +1,7 @@
+{
+    "terraform": {
+        "allowed_resources": [
+            "my_allowed_resource_type"
+        ]
+    }
+}
